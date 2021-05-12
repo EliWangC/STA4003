@@ -89,9 +89,9 @@ for (j in 2:p)      # For stock 1 to 10
     step3.forecasts[i] <- predictions[3]
   }
   
-  MSE.Stock[1, (j-1)] <- sum((Stock[index.test.Step1] - step1.forecasts)^2)
-  MSE.Stock[2, (j-1)] <- sum((Stock[index.test.Step2] - step2.forecasts[1:(n2-1)])^2)
-  MSE.Stock[3, (j-1)] <- sum((Stock[index.test.Step3] - step3.forecasts[1:(n2-2)])^2)
+  MSE.Stock[1, (j-1)] <- mean((Stock[index.test.Step1] - step1.forecasts)^2)
+  MSE.Stock[2, (j-1)] <- mean((Stock[index.test.Step2] - step2.forecasts[1:(n2-1)])^2)
+  MSE.Stock[3, (j-1)] <- mean((Stock[index.test.Step3] - step3.forecasts[1:(n2-2)])^2)
 }
 
 
