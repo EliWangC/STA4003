@@ -5,9 +5,11 @@ load("StockData.Rdata")
 if(!require(tseries)) install.packages("tseries")
 if(!require(forecast)) install.packages("forecast")
 if(!require(nloptr)) install.packages("nloptr")
+if(!require(CVXR)) install.packages("CVXR")
 library(tseries)    # adf.test
 library(forecast)   # auto.arima
 library(nloptr)     # general-purpose nonlinear solver
+library(CVXR)       # define the inner solver based on an SOCP solver 
 
 
 # Dataset "StockData.test" will be used for grading. 
@@ -87,11 +89,12 @@ train_log_rtn = StockData[1:n1, 2:p]
 mu = colMeans(train_log_rtn)
 sigma = cov(train_log_rtn)
 
-# Define the nonconvex objective function
+# Define the nonconvex objective function (returns the value of sharpe ratio)
 fn_SR <- function(w) {
-  return(as.numeric(t(w) %*% mu / sqrt(t(w) %*% sigma %*% w)))
+  return (as.numeric(t(w) %*% mu / sqrt(t(w) %*% sigma %*% w))) 
 }
 
+#### MSRP via general-purpose nonlinear solver #### 
 # Initial point
 w0 <- rep(1/N, N)
 # Start nonlinear programming
@@ -101,7 +104,41 @@ res <- nloptr::slsqp(w0, fn_SR,
 w_nonlinear_solver <- res$par            # Optimized weight by nonlinear solver
 res
 
-# Calculate the log return of the 10 stocks
+#### MSRP via bisection #### 
+sigma_12 <- chol(sigma)                     # Square-root of matrix sigma
+max(abs(t(sigma_12) %*% sigma_12 - sigma))  # Sanity check
+
+# Create function for MVP
+SOCP_bisection <- function(t) {
+  w <- Variable(nrow(sigma))
+  prob <- Problem(Maximize(0),
+                  constraints = list(t*cvxr_norm(sigma_12 %*% w, 2) <= t(mu) %*% w,
+                                     sum(w) == 1,
+                                     w >= 0))
+  result <- solve(prob)
+  return(list("status" = result$status, "w" = as.vector(result$getValue(w))))
+}
+
+# Run the bisection algorithm
+t_lb <- 0   # for sure the problem is feasible in this case
+t_ub <- 10  # a tighter upper bound coud be chose, but a Sharpe ratio of 10 surely cannot be achieved
+while (t_ub - t_lb > 1e-6) 
+{
+  t <- (t_ub + t_lb)/2  # midpoint
+  if (SOCP_bisection(t)$status == "infeasible")
+    t_ub <- t
+  else
+    t_lb <- t
+}
+w_bisection <- SOCP_bisection(t_lb)$w
+
+# comparison between two solutions
+round(cbind(w_nonlinear_solver, w_bisection), digits = 3)
+
+c("nonlinear_solver" = fn_SR(w_nonlinear_solver), 
+  "bisection"        = fn_SR(w_bisection))
+
+# Calculate the log return of the 10 stocks over week 209 to 260
 return.stock <- c()
 for (j in (n1+1):(n1+n2)) 
 {
@@ -109,21 +146,21 @@ for (j in (n1+1):(n1+n2))
   for (i in 1:N) 
   {
     # (For week j) Log return of portfolio += weight of stock i * corresponding return
-    return.stock_j <- return.stock_j + w_nonlinear_solver[i] * StockData[j, i+1]  
+    # return.stock_j <- return.stock_j + w_nonlinear_solver[i] * StockData[j, i+1]  
+    return.stock_j <- return.stock_j + w_bisection[i] * StockData[j, i+1]  
   }
   return.stock <- c(return.stock, return.stock_j)
 }
 
 
-
 ######### Output. Don't change any codes below.
-MSE <- rowMeans(MSE.Stock)
+# MSE <- rowMeans(MSE.Stock)
 Ex.Return <- return.stock - StockData[(n1+1):(n1+n2),1] # excessive returns over SP500
 Total.Return <- sum(Ex.Return)
 Var.Return <- var(Ex.Return)
 Ratio.Return <- mean(Ex.Return)/sqrt(Var.Return)
 
-print(MSE)
+# print(MSE)
 print(Total.Return)
 print(Var.Return)
 print(Ratio.Return)
