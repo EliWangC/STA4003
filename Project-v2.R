@@ -4,9 +4,10 @@ load("StockData.Rdata")
 # Load needed packages
 if(!require(tseries)) install.packages("tseries")
 if(!require(forecast)) install.packages("forecast")
+if(!require(nloptr)) install.packages("nloptr")
 library(tseries)    # adf.test
 library(forecast)   # auto.arima
-
+library(nloptr)     # general-purpose nonlinear solver
 
 
 # Dataset "StockData.test" will be used for grading. 
@@ -17,6 +18,7 @@ library(forecast)   # auto.arima
 n1 <- 208                             # The length of training set
 n2 <- 52                              # The length of test set
 p <- dim(StockData)[2]                # The first column is the log return for SP500
+N <- p - 1                            # The amout of individual stocks
 
 # Testing periods for recording your forecasts
 index.test.Step1 <- (n1+1):(n1+n2)    # From week 209 to week 260
@@ -27,35 +29,10 @@ index.test.Step3 <- (n1+3):(n1+n2)    # From week 211 to week 260
 MSE <- rep(0,3)                       # The mean squared errors for 1-Step, 2-Step, 3-Step forecasts
 MSE.Stock <- matrix(rep(0,(p-1)*3),3,(p-1)) # MSE for each stock and h-step forecast
 
-# # ------------------------------------------------- #
-# ##### My code for manipulating the data around and see what does the data look like
-# 
-# # Assign a to S&P500 data for simplicity
-# SP500 = StockData[, 1]
-# 
-# # See what our time series data (the log returns) looks like
-# plot(SP500, type = "l", xlab = "Week", ylab = "Log Returns (S&P500)")
-# plot(StockData[, 7], type = "l", xlab = "Week", ylab = "Log Returns (Stock 6)")
-# 
-# # Conduct ADF test for dataset
-# print(adf.test(SP500))
-# 
-# # Plot ACF and PACF
-# acf(SP500, main = "ACF Plot (S&P500)")
-# pacf(SP500, main = "PACF Plot (S&P500)")
-# 
-# # We apply auto-arima model to the dataset
-# sp500_train = SP500[1:n1]
-# sp500_test = SP500[(n1+1):(n1+n2)]
-# sp500fit <- auto.arima(sp500_train, lambda = "auto")
-# plot(resid(sp500fit), type = "l", xlab = "Week", ylab = "Model Residuals (S&P500)")
-# 
-# sp500_forecast <- forecast(sp500fit, h = 4)
-# plot(sp500_forecast)
-# # ------------------------------------------------- #
 
 ########## Your code to build the time series model  
-start.time <- Sys.time()  # Start measuring the execution time
+# Start measuring the execution time
+forecast_start <- Sys.time()  
 
 for (j in 2:p)      # For stock 1 to 10
 {
@@ -94,16 +71,50 @@ for (j in 2:p)      # For stock 1 to 10
   MSE.Stock[3, (j-1)] <- mean((Stock[index.test.Step3] - step3.forecasts[1:(n2-2)])^2)
 }
 
+# End time measurement and show it
+forecast_end <- Sys.time()
+forecast_runtime <- forecast_end - forecast_start
+cat("Forecasting Runtime:", forecast_runtime, "\n")
 
 ##### Your code for Trading stratedy #####
+#### Equally weighted portfolio #### 
 # Example: My trading strategy is buy and sell each stock with same weight
-return.stock <- rowMeans(StockData[(n1+1):(n1+n2), 2:p])
+# return.stock <- rowMeans(StockData[(n1+1):(n1+n2), 2:p])
+
+#### Maximum Sharpe ratio portfolio (MSRP) ####
+
+train_log_rtn = StockData[1:n1, 2:p]
+mu = colMeans(train_log_rtn)
+sigma = cov(train_log_rtn)
+
+# Define the nonconvex objective function
+fn_SR <- function(w) {
+  return(as.numeric(t(w) %*% mu / sqrt(t(w) %*% sigma %*% w)))
+}
+
+# Initial point
+w0 <- rep(1/N, N)
+# Start nonlinear programming
+res <- nloptr::slsqp(w0, fn_SR,
+                     lower = rep(0, N),  # w >= 0
+                     heq = function(w) return(sum(w) - 1))    # sum(w) = 1
+w_nonlinear_solver <- res$par            # Optimized weight by nonlinear solver
+res
+
+# Calculate the log return of the 10 stocks
+return.stock <- c()
+for (j in (n1+1):(n1+n2)) 
+{
+  return.stock_j <- 0      # Initialize the portfolio return of week j
+  for (i in 1:N) 
+  {
+    # (For week j) Log return of portfolio += weight of stock i * corresponding return
+    return.stock_j <- return.stock_j + w_nonlinear_solver[i] * StockData[j, i+1]  
+  }
+  return.stock <- c(return.stock, return.stock_j)
+}
 
 
-# End time measurement and show it
-end.time <- Sys.time()
-time.taken <- end.time - start.time
-cat("Model Runtime:", time.taken, "\n")
 
 ######### Output. Don't change any codes below.
 MSE <- rowMeans(MSE.Stock)
