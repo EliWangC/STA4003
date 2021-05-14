@@ -6,10 +6,12 @@ if(!require(tseries)) install.packages("tseries")
 if(!require(forecast)) install.packages("forecast")
 if(!require(nloptr)) install.packages("nloptr")
 if(!require(CVXR)) install.packages("CVXR")
+if(!require(rugarch)) install.packages("rugarch")
 library(tseries)    # adf.test
 library(forecast)   # auto.arima
 library(nloptr)     # general-purpose nonlinear solver
 library(CVXR)       # define the inner solver based on an SOCP solver 
+library(rugarch)    # GARCH
 
 
 # Dataset "StockData.test" will be used for grading. 
@@ -33,6 +35,18 @@ MSE.Stock <- matrix(rep(0,(p-1)*3),3,(p-1)) # MSE for each stock and h-step fore
 
 
 ########## Your code to build the time series model  
+# # Assign a to S&P500 data for simplicity
+# SP500 = StockData[, 1]
+# train_set <- Stock[1:208]
+# 
+# # Dataset forecast upper first 5 values
+# fitarfima = autoarfima(data = train_set, ar.max = 2, ma.max = 2, 
+#                        criterion = "AIC", method = "full")
+
+
+
+
+
 # Start measuring the execution time
 forecast_start <- Sys.time()  
 
@@ -46,36 +60,57 @@ for (j in 2:p)      # For stock 1 to 10
   for (i in 1:n2)   # For week i in the test set
   {
     # Moving training windows
-    index.train <- i:(i+n1-1) 
+    index.train <- i:(i+n1-1)
+    # index.train <- 2:(2+n1-1)
     train_set <- Stock[index.train]
     predictions <- c()
     
     ##### Your code for building model #####
-    ### Recursive Multi-step Forecast ###
-    for (h in 1:3) 
-    { 
-      # Fit the AUTO-ARIMA model that automatically selects the best model parameters 
-      arima_model <- auto.arima(train_set, lambda = "auto")
-      arima_forecast <- forecast(arima_model, h = 1)
-      onestep_forecast <- arima_forecast$mean[1]             # Get the predicted value
+    #### Recursive Multi-step Forecast ####
+    for (h in 1:3)
+    {
+      # Fit the AUTO-ARIMA model that automatically selects the best model parameters
+      arima_model <- auto.arima(train_set, lambda = "auto",
+                                stepwise = TRUE,
+                                parallel = TRUE,
+                                trace = FALSE,
+                                allowdrift = TRUE)
+      arima_order <- arimaorder(arima_model)                 # Store a list of ordrs (p, d, q)
+      
+      # Define the GARCH+ARIMA model
+      garch11_arima = ugarchspec(variance.model = list(garchOrder = c(1,1)), 
+                                 mean.model = list(armaOrder = c(arima_order[1], arima_order[3])))
+      
+      # Estimate model 
+      garch11_arima_fit = ugarchfit(spec = garch11_arima, data = train_set)
+      
+      # GARCH Forecasting
+      garch11_arima_forecast <- ugarchforecast(garch11_arima_fit, n.ahead = 1 )
+      
+      # arima_forecast <- forecast(arima_model, h = 1)
+      # onestep_forecast <- arima_forecast$mean[1]          
+      onestep_forecast <- fitted(garch11_arima_forecast)     # Get the predicted value
       predictions <- c(predictions, onestep_forecast)        # Store the prediction value
       train_set <- c(train_set, onestep_forecast)            # Add the predicted value into the training set for recursive forecast
     }
-    
+
     # Your h-step forecast for Stock j on Week i, h = 1, 2, or 3.
     step1.forecasts[i] <- predictions[1]
     step2.forecasts[i] <- predictions[2]
     step3.forecasts[i] <- predictions[3]
   }
-  
+    
+
   MSE.Stock[1, (j-1)] <- mean((Stock[index.test.Step1] - step1.forecasts)^2)
   MSE.Stock[2, (j-1)] <- mean((Stock[index.test.Step2] - step2.forecasts[1:(n2-1)])^2)
   MSE.Stock[3, (j-1)] <- mean((Stock[index.test.Step3] - step3.forecasts[1:(n2-2)])^2)
 }
 
+  
 # End time measurement and show it
 forecast_end <- Sys.time()
 forecast_runtime <- forecast_end - forecast_start
+cat("Forecasting Runtime:", forecast_runtime, "\n")
 
 MSE <- rowMeans(MSE.Stock)
 print(MSE)
