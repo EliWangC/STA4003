@@ -76,7 +76,7 @@ for (j in 2:p)      # For stock 1 to 10
 # End time measurement and show it
 forecast_end <- Sys.time()
 forecast_runtime <- forecast_end - forecast_start
-cat("Forecasting Runtime:", forecast_runtime, "\n")
+# cat("Forecasting Runtime:", forecast_runtime, "\n")
 
 ##### Your code for Trading stratedy #####
 #### Equally weighted portfolio #### 
@@ -154,13 +154,15 @@ for (j in (n1+1):(n1+n2))
 
 
 ######### Output. Don't change any codes below.
-# MSE <- rowMeans(MSE.Stock)
+MSE <- rowMeans(MSE.Stock)
 Ex.Return <- return.stock - StockData[(n1+1):(n1+n2),1] # excessive returns over SP500
 Total.Return <- sum(Ex.Return)
 Var.Return <- var(Ex.Return)
 Ratio.Return <- mean(Ex.Return)/sqrt(Var.Return)
 
-# print(MSE)
+print(MSE)
 print(Total.Return)
 print(Var.Return)
 print(Ratio.Return)
+
+cat("Forecasting Runtime:", forecast_runtime, "\n")
